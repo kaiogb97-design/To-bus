@@ -41,14 +41,19 @@ jobs:
           mkdir -p app/src/main/res/mipmap-xxhdpi
           mkdir -p app/src/main/res/mipmap-xxxhdpi
           mkdir -p app/src/main/res/mipmap-anydpi-v26
-
           mkdir -p app/src/main/assets/www/js
           mkdir -p app/src/main/assets/www/css
           mkdir -p app/src/main/assets/www/assets
 
           cp index.html app/src/main/assets/www/index.html
-          cp styles.css app/src/main/assets/www/css/styles.css
-          cp *.js app/src/main/assets/www/js/
+
+          if [ -f styles.css ]; then
+            cp styles.css app/src/main/assets/www/css/styles.css
+          fi
+
+          if ls *.js 1> /dev/null 2>&1; then
+            cp *.js app/src/main/assets/www/js/
+          fi
 
           if [ -f logo.png ]; then
             cp logo.png app/src/main/assets/www/assets/logo.png
@@ -56,48 +61,102 @@ jobs:
 
           cp MainActivity.java app/src/main/java/com/tobus/app/MainActivity.java
 
-          # ------------------------------------------------
-          # ICONE TRADICIONAL
-          # ------------------------------------------------
+      # ==========================================================
+      # ICONE DO APLICATIVO
+      # ==========================================================
 
+      - name: Verificar ícone
+        run: |
           if [ ! -f app_icon.png ]; then
-            echo "ERRO: app_icon.png nao encontrado."
+            echo "ERRO: app_icon.png não encontrado."
+            echo "Envie uma imagem chamada app_icon.png para a raiz do repositório."
             exit 1
           fi
 
+      - name: Preparar ícone com margem segura
+        run: |
+          # Cria uma versão quadrada 1024x1024.
+          # O fundo ocupa toda a imagem e o logo fica reduzido no centro,
+          # evitando cortes feitos pelas máscaras do Android.
+
           convert app_icon.png \
+            -resize 1024x1024^ \
+            -gravity center \
+            -extent 1024x1024 \
+            /tmp/icon_background.png
+
+          convert app_icon.png \
+            -resize 700x700 \
+            /tmp/icon_logo.png
+
+          convert /tmp/icon_background.png \
+            -blur 0x18 \
+            /tmp/icon_background_blur.png
+
+          convert /tmp/icon_background_blur.png \
+            /tmp/icon_logo.png \
+            -gravity center \
+            -composite \
+            /tmp/icon_safe.png
+
+      - name: Gerar ícones tradicionais
+        run: |
+          convert /tmp/icon_safe.png \
             -resize 48x48 \
             app/src/main/res/mipmap-mdpi/ic_launcher.png
 
-          convert app_icon.png \
+          convert /tmp/icon_safe.png \
             -resize 72x72 \
             app/src/main/res/mipmap-hdpi/ic_launcher.png
 
-          convert app_icon.png \
+          convert /tmp/icon_safe.png \
             -resize 96x96 \
             app/src/main/res/mipmap-xhdpi/ic_launcher.png
 
-          convert app_icon.png \
+          convert /tmp/icon_safe.png \
             -resize 144x144 \
             app/src/main/res/mipmap-xxhdpi/ic_launcher.png
 
-          convert app_icon.png \
+          convert /tmp/icon_safe.png \
             -resize 192x192 \
             app/src/main/res/mipmap-xxxhdpi/ic_launcher.png
 
-          # ------------------------------------------------
-          # ADAPTIVE ICON
-          # ------------------------------------------------
+          cp app/src/main/res/mipmap-mdpi/ic_launcher.png \
+             app/src/main/res/mipmap-mdpi/ic_launcher_round.png
 
-          # Camada frontal
+          cp app/src/main/res/mipmap-hdpi/ic_launcher.png \
+             app/src/main/res/mipmap-hdpi/ic_launcher_round.png
+
+          cp app/src/main/res/mipmap-xhdpi/ic_launcher.png \
+             app/src/main/res/mipmap-xhdpi/ic_launcher_round.png
+
+          cp app/src/main/res/mipmap-xxhdpi/ic_launcher.png \
+             app/src/main/res/mipmap-xxhdpi/ic_launcher_round.png
+
+          cp app/src/main/res/mipmap-xxxhdpi/ic_launcher.png \
+             app/src/main/res/mipmap-xxxhdpi/ic_launcher_round.png
+
+      # ==========================================================
+      # ADAPTIVE ICON - ANDROID 8+
+      # ==========================================================
+
+      - name: Criar foreground do Adaptive Icon
+        run: |
+          # Canvas transparente de 432x432.
+          # O logo ocupa apenas 280x280 para ficar dentro da safe zone.
+
           convert app_icon.png \
-            -resize 432x432 \
+            -resize 280x280 \
+            /tmp/adaptive_logo.png
+
+          convert -size 432x432 xc:none \
+            /tmp/adaptive_logo.png \
             -gravity center \
-            -background none \
-            -extent 432x432 \
+            -composite \
             app/src/main/res/drawable/ic_launcher_foreground.png
 
-          # Cor do fundo do adaptive icon
+      - name: Criar cor de fundo do ícone
+        run: |
           cat > app/src/main/res/values/colors.xml <<'EOF'
           <?xml version="1.0" encoding="utf-8"?>
           <resources>
@@ -105,7 +164,8 @@ jobs:
           </resources>
           EOF
 
-          # Adaptive icon Android 8+
+      - name: Criar Adaptive Icon
+        run: |
           cat > app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml <<'EOF'
           <?xml version="1.0" encoding="utf-8"?>
           <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
@@ -114,7 +174,8 @@ jobs:
           </adaptive-icon>
           EOF
 
-          # Adaptive round icon
+      - name: Criar Adaptive Round Icon
+        run: |
           cat > app/src/main/res/mipmap-anydpi-v26/ic_launcher_round.xml <<'EOF'
           <?xml version="1.0" encoding="utf-8"?>
           <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
@@ -123,28 +184,44 @@ jobs:
           </adaptive-icon>
           EOF
 
-          # ------------------------------------------------
-          # TEMA
-          # ------------------------------------------------
+      # ==========================================================
+      # TEMA
+      # ==========================================================
 
+      - name: Criar tema
+        run: |
           cat > app/src/main/res/values/styles.xml <<'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
           <resources>
-              <style name="Theme.ToBus" parent="android:style/Theme.Material.Light.NoActionBar">
+
+              <style
+                  name="Theme.ToBus"
+                  parent="android:style/Theme.Material.Light.NoActionBar">
+
                   <item name="android:fontFamily">sans</item>
+
                   <item name="android:windowLightStatusBar">true</item>
+
                   <item name="android:statusBarColor">#FFFFFF</item>
+
                   <item name="android:navigationBarColor">#FFFFFF</item>
+
                   <item name="android:windowActionModeOverlay">true</item>
+
               </style>
+
           </resources>
           EOF
 
-          # ------------------------------------------------
-          # MANIFEST
-          # ------------------------------------------------
+      # ==========================================================
+      # ANDROID MANIFEST
+      # ==========================================================
 
+      - name: Criar AndroidManifest
+        run: |
           cat > app/src/main/AndroidManifest.xml <<'EOF'
           <?xml version="1.0" encoding="utf-8"?>
+
           <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
               <uses-permission android:name="android.permission.INTERNET" />
@@ -163,8 +240,11 @@ jobs:
                       android:screenOrientation="portrait">
 
                       <intent-filter>
+
                           <action android:name="android.intent.action.MAIN" />
+
                           <category android:name="android.intent.category.LAUNCHER" />
+
                       </intent-filter>
 
                   </activity>
@@ -174,10 +254,12 @@ jobs:
           </manifest>
           EOF
 
-          # ------------------------------------------------
-          # GRADLE
-          # ------------------------------------------------
+      # ==========================================================
+      # GRADLE
+      # ==========================================================
 
+      - name: Criar settings.gradle
+        run: |
           cat > settings.gradle <<'EOF'
           pluginManagement {
               repositories {
@@ -189,6 +271,7 @@ jobs:
 
           dependencyResolutionManagement {
               repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+
               repositories {
                   google()
                   mavenCentral()
@@ -196,15 +279,20 @@ jobs:
           }
 
           rootProject.name = "ToBus"
+
           include ':app'
           EOF
 
+      - name: Criar build.gradle principal
+        run: |
           cat > build.gradle <<'EOF'
           plugins {
               id 'com.android.application' version '8.7.3' apply false
           }
           EOF
 
+      - name: Criar app build.gradle
+        run: |
           cat > app/build.gradle <<'EOF'
           plugins {
               id 'com.android.application'
@@ -212,22 +300,33 @@ jobs:
 
           android {
               namespace 'com.tobus.app'
+
               compileSdk 35
 
               defaultConfig {
                   applicationId 'com.tobus.app'
+
                   minSdk 23
                   targetSdk 35
+
                   versionCode 2
                   versionName '1.1'
               }
           }
           EOF
 
+      # ==========================================================
+      # ANDROIDX
+      # ==========================================================
+
       - name: Ativar AndroidX
         run: |
           echo "android.useAndroidX=true" > gradle.properties
           echo "android.enableJetifier=true" >> gradle.properties
+
+      # ==========================================================
+      # GERAR APK
+      # ==========================================================
 
       - name: Gerar APK
         run: gradle assembleDebug
@@ -235,7 +334,13 @@ jobs:
       - name: Preparar APK
         run: |
           mkdir -p apk-final
-          cp app/build/outputs/apk/debug/app-debug.apk apk-final/To-Bus.apk
+
+          cp app/build/outputs/apk/debug/app-debug.apk \
+             apk-final/To-Bus.apk
+
+      # ==========================================================
+      # DISPONIBILIZAR APK
+      # ==========================================================
 
       - name: Salvar APK
         uses: actions/upload-artifact@v4
