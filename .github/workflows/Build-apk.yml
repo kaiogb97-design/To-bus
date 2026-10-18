@@ -25,11 +25,20 @@ jobs:
         with:
           gradle-version: '8.9'
 
+      - name: Instalar ferramentas do ícone
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y imagemagick
+
       - name: Criar estrutura Android
         run: |
           mkdir -p app/src/main/java/com/tobus/app
           mkdir -p app/src/main/res/values
-          mkdir -p app/src/main/res/drawable
+          mkdir -p app/src/main/res/mipmap-mdpi
+          mkdir -p app/src/main/res/mipmap-hdpi
+          mkdir -p app/src/main/res/mipmap-xhdpi
+          mkdir -p app/src/main/res/mipmap-xxhdpi
+          mkdir -p app/src/main/res/mipmap-xxxhdpi
           mkdir -p app/src/main/assets/www/js
           mkdir -p app/src/main/assets/www/css
           mkdir -p app/src/main/assets/www/assets
@@ -42,15 +51,67 @@ jobs:
             cp logo.png app/src/main/assets/www/assets/logo.png
           fi
 
+          cp MainActivity.java app/src/main/java/com/tobus/app/MainActivity.java
+
+          # Criar ícones Android usando app_icon.png
           if [ -f app_icon.png ]; then
-            cp app_icon.png app/src/main/res/drawable/app_icon.png
+            convert app_icon.png -resize 48x48 app/src/main/res/mipmap-mdpi/ic_launcher.png
+            convert app_icon.png -resize 72x72 app/src/main/res/mipmap-hdpi/ic_launcher.png
+            convert app_icon.png -resize 96x96 app/src/main/res/mipmap-xhdpi/ic_launcher.png
+            convert app_icon.png -resize 144x144 app/src/main/res/mipmap-xxhdpi/ic_launcher.png
+            convert app_icon.png -resize 192x192 app/src/main/res/mipmap-xxxhdpi/ic_launcher.png
           elif [ -f logo.png ]; then
-            cp logo.png app/src/main/res/drawable/app_icon.png
+            convert logo.png -resize 48x48 app/src/main/res/mipmap-mdpi/ic_launcher.png
+            convert logo.png -resize 72x72 app/src/main/res/mipmap-hdpi/ic_launcher.png
+            convert logo.png -resize 96x96 app/src/main/res/mipmap-xhdpi/ic_launcher.png
+            convert logo.png -resize 144x144 app/src/main/res/mipmap-xxhdpi/ic_launcher.png
+            convert logo.png -resize 192x192 app/src/main/res/mipmap-xxxhdpi/ic_launcher.png
+          else
+            echo "ERRO: app_icon.png ou logo.png não encontrado."
+            exit 1
           fi
 
-          cp MainActivity.java app/src/main/java/com/tobus/app/MainActivity.java
-          cp AndroidManifest.xml app/src/main/AndroidManifest.xml
-          cp styles.xml app/src/main/res/values/styles.xml
+          cat > app/src/main/res/values/styles.xml <<'EOF'
+          <resources>
+              <style name="Theme.ToBus" parent="android:style/Theme.Material.Light.NoActionBar">
+                  <item name="android:fontFamily">sans</item>
+                  <item name="android:windowLightStatusBar">true</item>
+                  <item name="android:statusBarColor">#FFFFFF</item>
+                  <item name="android:navigationBarColor">#FFFFFF</item>
+                  <item name="android:windowActionModeOverlay">true</item>
+              </style>
+          </resources>
+          EOF
+
+          cat > app/src/main/AndroidManifest.xml <<'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+              <uses-permission android:name="android.permission.INTERNET" />
+
+              <application
+                  android:allowBackup="true"
+                  android:icon="@mipmap/ic_launcher"
+                  android:label="To Bus"
+                  android:supportsRtl="true"
+                  android:theme="@style/Theme.ToBus">
+
+                  <activity
+                      android:name=".MainActivity"
+                      android:exported="true"
+                      android:screenOrientation="portrait">
+
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+
+                  </activity>
+
+              </application>
+
+          </manifest>
+          EOF
 
           cat > settings.gradle <<'EOF'
           pluginManagement {
@@ -111,9 +172,14 @@ jobs:
       - name: Gerar APK
         run: gradle assembleDebug
 
+      - name: Preparar APK
+        run: |
+          mkdir -p apk-final
+          cp app/build/outputs/apk/debug/app-debug.apk apk-final/To-Bus.apk
+
       - name: Salvar APK
         uses: actions/upload-artifact@v4
         with:
           name: To-Bus-APK
-          path: app/build/outputs/apk/debug/app-debug.apk
+          path: apk-final/To-Bus.apk
           if-no-files-found: error
