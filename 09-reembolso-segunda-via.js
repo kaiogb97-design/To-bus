@@ -1,0 +1,91 @@
+/* ===== REEMBOLSO (solicitação com questionário de verificação) ===== */
+const RBR={dup:['🧾','Cobrança duplicada','Paguei a mesma recarga mais de uma vez'],nc:['⏳','Crédito não chegou','Paguei, mas os créditos não apareceram no cartão'],err:['✏️','Valor errado','Recarreguei um valor diferente do que queria'],des:['🔄','Desisti / não vou usar','Quero devolver o crédito que não usei']};
+const RBT={aprovado:[0,5000,12000,22000],analise:[0,8000,20000,35000]};
+const RBL={aprovado:['Pedido recebido','Verificação concluída','Pix em processamento','Pix enviado'],analise:['Pedido recebido','Em análise pela equipe','Decisão: aprovado','Pix enviado']};
+let RB={s:1,id:null,r:null,q:{},v:{},tries:0,pix:'cpf',locked:false},RBI=null;
+const rbDaysH=h=>h.ts?Math.max(0,dayDiff(h.ts)):rbDays(h.d);const rbDays=d=>/hoje/i.test(d)?0:/ontem/i.test(d)?1:(+((d||'').match(/\d+/)||[0]));
+const rbList=()=>S.hist.map((h,i)=>({h,i})).filter(x=>x.h.k=='rec'&&!x.h.reemb);
+const rbStage=r=>{const t=RBT[r.tipo],e=Date.now()-r.ts;let s=0;t.forEach((x,i)=>{if(e>=x)s=i});return s};
+const rbBadge=r=>{const s=rbStage(r);return s==3?'<span class="rb-bd g">Reembolsado ✓</span>':r.tipo=='analise'?'<span class="rb-bd a">Em análise</span>':'<span class="rb-bd b">Aprovado · Pix a caminho</span>'};
+const rbPix=r=>r=='cpf'?'Pix · CPF •••.'+USER.cpf.slice(3,6)+'.'+USER.cpf.slice(6,9)+'-••':'Pix · '+esc(USER.email.replace(/^(.{2}).*(@.*)$/,'$1•••$2'));
+const rbK=()=>'tb_rb_'+(USER.oid||'x');
+function rbLoadLock(){if(!isReg())return;try{const o=JSON.parse(localStorage.getItem(rbK())||'{}');RB.tries=o.t||0;RB.until=o.u||0}catch(e){}}
+function rbSaveLock(){if(!isReg())return;try{localStorage.setItem(rbK(),JSON.stringify({t:RB.tries,u:RB.until||0}))}catch(e){}}/* fix A6: limite persistido com tempo de bloqueio */
+const remCred=i=>{const h=S.hist[i];let nw=0;S.hist.forEach((x,j)=>{if(j<i&&x.k=='rec'&&!x.reemb)nw+=x.v});return Math.max(0,Math.min(h.v,+(S.saldo-nw).toFixed(2)))};/* crédito da recarga ainda não consumido (FIFO) */
+function dupRes(res,h,tx,oi){const rem=remCred(RB.id);if(rem<=0)return res({tipo:'negado',msg:'O crédito dessa recarga já foi usado, então não há o que reembolsar.'});if(rem>=h.v-1e-9)return res({tipo:'aprovado',val:+(h.v+tx).toFixed(2),deb:h.v,dupIdx:oi,prazo:'até 1 dia útil',msg:'Duplicidade confirmada. Devolvemos o valor total pago, inclusive a taxa.'});return res({tipo:'aprovado',val:+rem.toFixed(2),deb:+rem.toFixed(2),dupIdx:oi,prazo:'até 1 dia útil',msg:'Duplicidade confirmada, mas parte do crédito já foi usada. Devolvemos o saldo restante, sem a taxa.'})}
+function rbOpen(){clearInterval(timer);S.reemb=S.reemb||[];RB={s:0,id:null,r:null,q:{},v:{},tries:0,until:0,pix:'cpf',locked:false};rbLoadLock();rbDraw()}
+function rbTop(t,back){return `<div class="top"><button aria-label="Voltar" onclick="${back}">←</button><b>${t}</b></div>`}
+function rbDraw(){clearInterval(RBI);const s=RB.s;let h;
+ if(s==0)h=rbHome();else{const bk=s==1?'rbOpen()':'RB.s='+(s-1)+';rbDraw()';h=rbTop('Reembolso',bk)+`<div class="stp">${[1,2,3,4].map(i=>`<i class="${i<=s?'on':''}"></i>`).join('')}</div>`+[0,rbS1,rbS2,rbS3,rbS4][s]()}
+ ovHTML(`<div class="rb">${h}</div>`)}
+function rbHome(){const L=S.reemb||[],em=L.filter(r=>rbStage(r)<3).length,pg=L.filter(r=>rbStage(r)==3),tot=pg.reduce((a,r)=>a+r.val,0);
+ return rbTop('Reembolso','closeOv()')+`<div class="rb-hero"><div class="ic">💸</div><h2>Peça de volta o que é seu</h2><p>Solicite o reembolso de uma recarga em poucos toques. O dinheiro volta por Pix.</p></div>
+<div class="rb-st"><div><b>${em}</b><small>Em andamento</small></div><div><b>${pg.length}</b><small>Reembolsados</small></div><div><b>${R(tot)}</b><small>Devolvido</small></div></div>
+<div class="rb-how"><div><b>1</b>Escolha a recarga</div><div><b>2</b>Responda 3 perguntas</div><div><b>3</b>Receba por Pix</div></div>
+<button class="btn full" onclick="RB.s=1;rbDraw()">Solicitar reembolso</button>
+<div class="card"><b>Regras</b><p class="mut" style="margin:6px 0 0;font-size:13px">• Prazo: até 30 dias após a recarga.<br>• Só devolvemos crédito que ainda não foi usado.<br>• A taxa de ${R(C.taxa)} só é devolvida em cobrança duplicada ou crédito que não chegou.<br>• Pix em até 1 dia útil após a aprovação.</p></div>
+${L.length?`<div class="sec">Meus pedidos</div><div class="lst">${L.slice().reverse().map(r=>`<button class="li" onclick="rbDet('${safeId(r.proto)}')"><span class="ic">💸</span><div>${R(r.val)} · ${RBR[r.motivo][1]}<small>${r.proto} · ${rbBadge(r)}</small></div><span class="ch">›</span></button>`).join('')}</div>`:''}`}
+function rbS1(){const l=rbList();return `<h2 style="margin-top:0">Qual recarga?</h2><p class="mut" style="margin-bottom:12px">Escolha a recarga que você quer reembolsar.</p>`+(l.length?l.map(x=>`<button class="rb-opt ${RB.id===x.i?'on':''}" onclick="RB.id=${x.i};rbDraw()"><span class="ic">🧾</span><div>${esc(x.h.t)}<small>${esc(dRel(x.h))} · taxa ${R(C.taxa)} · total pago ${R(x.h.v+C.taxa)}</small></div><span class="v">${R(x.h.v)}</span></button>`).join(''):'<div class="card">Você não tem recargas disponíveis para reembolso.</div>')+`<button class="btn full" ${RB.id==null?'disabled style="opacity:.5"':''} onclick="RB.id!=null&&(RB.s=2,rbDraw())">Continuar</button>`}
+function rbS2(){return `<h2 style="margin-top:0">O que aconteceu?</h2><p class="mut" style="margin-bottom:12px">Isso nos ajuda a analisar o seu pedido.</p>`+Object.entries(RBR).map(([k,v])=>`<button class="rb-opt ${RB.r==k?'on':''}" onclick="RB.r='${k}';rbDraw()"><span class="ic">${v[0]}</span><div>${v[1]}<small>${v[2]}</small></div></button>`).join('')+`<button class="btn full" ${!RB.r?'disabled style="opacity:.5"':''} onclick="RB.r&&(RB.s=3,rbDraw())">Continuar</button>`}
+const rbCh=(k,o)=>`<div class="chs">${o.map(([v,t])=>`<button class="${RB.q[k]==v?'on':''}" onclick="RB.q.${k}='${v}';rbQ()">${t}</button>`).join('')}</div>`;
+function rbS3(){const h=S.hist[RB.id];return `<h2 style="margin-top:0">Confirmação rápida</h2><p class="mut" style="margin-bottom:12px">Responda para garantirmos que o reembolso de <b>${R(h.v)}</b> é seu e correto.</p>
+<div class="rb-q"><b>1. Você já usou as passagens dessa recarga?</b>${rbCh('use',[['nao','Não usei'],['parte','Usei algumas'],['tudo','Usei tudo']])}</div>
+<div class="rb-q"><b>2. O valor de ${R(h.v+C.taxa)} foi cobrado do seu Pix/banco?</b>${rbCh('paid',[['sim','Sim, confirmo'],['duv','Não tenho certeza']])}</div>
+<div class="rb-q"><b>3. Foi você quem fez essa recarga?</b>${rbCh('auth',[['eu','Sim, fui eu'],['nao','Não reconheço']])}</div>
+<div class="rb-q"><b>4. Confirme que é você</b><div class="g2"><div class="f"><label for="rbc">Final do cartão</label><input id="rbc" inputmode="numeric" maxlength="4" placeholder="0000" value="${RB.v.card||''}" oninput="RB.v.card=this.value.replace(/\\D/g,'')"></div><div class="f"><label for="rbp">3 primeiros dígitos do CPF</label><input id="rbp" inputmode="numeric" maxlength="3" placeholder="000" value="${RB.v.cpf||''}" oninput="RB.v.cpf=this.value.replace(/\\D/g,'')"></div></div></div>
+<div class="err" id="rbe"></div><button class="btn full" onclick="rbNext()">Verificar e continuar</button>`}
+function rbQ(){const y=$('.ov').scrollTop;rbDraw();$('.rb').style.animation='none';$('.ov').scrollTop=y}
+function rbErr(m){const e=$('#rbe');e.textContent=m;e.classList.remove('shake');void e.offsetWidth;e.classList.add('shake')}
+function rbNext(){const q=RB.q;if(RB.until&&Date.now()>=RB.until){RB.tries=0;RB.until=0;rbSaveLock()}if(Date.now()<(RB.until||0))return rbErr('Por segurança, novos pedidos estão bloqueados nesta sessão. Fale com a Ajuda 24h.');
+ if(!q.use||!q.paid||!q.auth)return rbErr('Responda as 3 perguntas para continuar.');
+ if(q.paid=='duv')return rbErr('Confirme a cobrança no extrato do seu banco/Pix e volte aqui. Sem o débito confirmado não dá para reembolsar.');
+ if(RB.v.card!==C.final||RB.v.cpf!==USER.cpf.slice(0,3)){RB.tries++;if(RB.tries>=3){RB.until=Date.now()+30*60000;rbSaveLock();return rbDraw3Lock()}rbSaveLock();return rbErr('Os dados não conferem. Tentativa '+RB.tries+' de 3.')}
+ RB.tries=0;rbSaveLock();RB.res=rbDecide();RB.s=4;rbDraw()}
+function rbDraw3Lock(){ovHTML(`<div class="rb">${rbTop('Reembolso','closeOv()')}<div class="rb-ok r">🔒</div><h2 style="text-align:center">Verificação bloqueada</h2><p class="mut" style="text-align:center">Os dados informados não conferiram 3 vezes. Por segurança, o pedido foi interrompido. Fale com a Ajuda 24h para continuar.</p><button class="btn full" onclick="closeOv();chat()">Falar com a Ajuda 24h</button></div>`)}
+function rbDecide(){const h=S.hist[RB.id],d=rbDaysH(h),q=RB.q,r=RB.r,tx=C.taxa,ck=[];
+ const add=(t,k,s)=>ck.push({t,k,s});
+ add('Identidade confirmada','ok','Cartão e CPF conferem');add('Pagamento confirmado','ok','Débito informado por você');
+ add('Prazo de 30 dias',d<=30?'ok':'x',d==0?'Recarga feita hoje':d+' dia(s) desde a recarga');
+ add('Recarga reconhecida',q.auth=='eu'?'ok':'w',q.auth=='eu'?'Você confirmou a autoria':'Você não reconhece: vai para análise de segurança');
+ const res=o=>Object.assign({ck,tipo:'negado',val:0,deb:0,prazo:'',msg:''},o);
+ if(d>30)return res({tipo:'negado',msg:'Esta recarga passou do prazo de 30 dias para reembolso.'});
+ if(q.auth=='nao')return res({tipo:'analise',val:h.v+tx,deb:0,prazo:'até 4 dias úteis',msg:'Vamos investigar uma possível cobrança indevida. Recomendamos bloquear o cartão por segurança.',seg:true});
+ if(r=='dup'){const oi=S.hist.findIndex((x,i)=>i!=RB.id&&x.k=='rec'&&!x.reemb&&x.v==h.v&&Math.abs(rbDaysH(x)-d)<=1),o=oi>=0?S.hist[oi]:null;
+  add('Cobrança duplicada',o?'ok':'w',o?'Encontramos outra recarga de '+R(h.v)+' ('+dRel(o)+')':'Não encontramos outra recarga igual: análise manual');
+  if(o)return dupRes(res,h,tx,oi);return res({tipo:'analise',val:+(h.v+tx).toFixed(2),deb:0,prazo:'até 2 dias úteis',msg:'Vamos conferir o pagamento com o banco.'})}
+ if(r=='nc'){add('Crédito no cartão',q.use=='nao'?'w':'x',q.use=='nao'?'Nosso sistema mostra crédito de '+R(h.v)+': vamos conferir':'Você informou que usou o crédito');
+  return q.use=='nao'?res({tipo:'analise',val:+(h.v+tx).toFixed(2),deb:0,prazo:'até 2 dias úteis',msg:'Vamos conferir o crédito e o pagamento. Se o erro for nosso, devolvemos tudo, inclusive a taxa.'}):res({tipo:'negado',msg:'O crédito foi lançado e já foi usado, então não há o que reembolsar.'})}
+ const cred=remCred(RB.id),usado=cred<h.v-1e-9;
+ add('Crédito disponível',cred>0&&q.use!='tudo'?(usado?'w':'ok'):'x',cred>0?(usado?'Parte já usada: devolvemos o saldo restante de '+R(cred):'Crédito inteiro disponível'):'Sem saldo disponível no cartão');
+ if(q.use=='tudo'||cred<=0)return res({tipo:'negado',msg:'Todo o crédito dessa recarga já foi usado. Só devolvemos crédito não utilizado.'});
+ return res({tipo:'aprovado',val:+cred.toFixed(2),deb:+cred.toFixed(2),prazo:'até 1 dia útil',msg:'Devolvemos o crédito não usado. A taxa de '+R(tx)+' não é reembolsável neste caso.'})}
+function rbS4(){const r=RB.res,h=S.hist[RB.id];
+ const ico=r.tipo=='aprovado'?['✓','']:r.tipo=='analise'?['⏱','a']:['✕','r'],tt=r.tipo=='aprovado'?'Reembolso aprovado':r.tipo=='analise'?'Seu pedido vai para análise':'Não foi possível reembolsar';
+ return `<div class="rb-ok ${ico[1]}">${ico[0]}</div><h2 style="text-align:center;margin:0">${tt}</h2>${r.val?`<div class="rb-big">${R(r.val)}</div>`:''}<p class="mut" style="text-align:center">${r.msg}</p>
+<div class="card" style="margin-top:12px"><b>Verificações</b>${r.ck.map(c=>`<div class="rb-ck ${c.k=='ok'?'':c.k}"><i>${c.k=='ok'?'✓':c.k=='w'?'!':'✕'}</i><div>${c.t}<small>${c.s}</small></div></div>`).join('')}</div>
+${r.tipo!='negado'?`<div class="card"><b>Para onde enviar?</b><div class="chs" style="margin-top:8px">${[['cpf','Pix · CPF'],['email','Pix · E-mail']].map(([k,n])=>`<button class="${RB.pix==k?'on':''}" onclick="RB.pix='${k}';rbDraw()">${n}</button>`).join('')}</div><p class="rb-nt" style="margin-bottom:0">${rbPix(RB.pix)} · ${r.prazo} após a decisão</p></div>
+<button class="btn full" onclick="confirmSheet('Solicitar reembolso de ${R(r.val)}','${r.tipo=='aprovado'?'O crédito devolvido será retirado do seu cartão e enviado por Pix.':'Seu pedido será enviado para análise.'}',rbSubmit)">Confirmar pedido</button>`:`<button class="btn full" onclick="RB.s=2;rbDraw()">Revisar minhas respostas</button><button class="btn gh full" onclick="closeOv();chat()">Falar com a Ajuda 24h</button>`}
+<button class="btn gh full" onclick="rbOpen()">Cancelar</button>`}
+function rbSubmit(){const r=RB.res,h=S.hist[RB.id];if(!r||!h||h.reemb)return closeSheet();/* anti-dup: sem pedido ativo ou recarga já reembolsada */S.reemb=S.reemb||[];
+ const n=new Date(),p='RB'+String(n.getFullYear()).slice(2)+String(n.getMonth()+1).padStart(2,'0')+String(n.getDate()).padStart(2,'0')+'-'+uuid().slice(0,6).toUpperCase();
+ const rec={proto:p,tipo:r.tipo,val:r.val,motivo:RB.r,pix:RB.pix,rec:h.t+' · '+dRel(h),prazo:r.prazo,ts:Date.now(),seg:!!r.seg};
+ h.reemb=p;if(r.dupIdx!=null&&S.hist[r.dupIdx])S.hist[r.dupIdx].reemb=p;const dd=fromCents(Math.min(toCents(r.deb),toCents(S.saldo)));if(dd>0)S.saldo=fromCents(toCents(S.saldo)-toCents(dd));/* B6 */
+ S.hist.unshift({t:'Reembolso '+(r.tipo=='aprovado'?'aprovado':'solicitado')+' – '+R(r.val),v:-dd,d:'Hoje '+hm(),k:'seg'});/* B6: saída de crédito no extrato */
+ S.notifs.unshift('Reembolso '+p+(r.tipo=='aprovado'?' aprovado: '+R(r.val)+' por Pix':' em análise'));S.lida=false;S.reemb.push(rec);saveS();RB.res=null;RB.id=null;/* índice mudou com o unshift: impede reenvio */
+ closeSheet();rbDone(rec)}
+function rbDone(rec){ovHTML(`<div class="rb">${rbTop('Reembolso','rbOpen()')}<div class="rb-ok ${rec.tipo=='analise'?'a':''}">${rec.tipo=='analise'?'⏱':'✓'}</div><h2 style="text-align:center;margin:0">${rec.tipo=='analise'?'Pedido enviado!':'Reembolso solicitado!'}</h2><div class="rb-big">${R(rec.val)}</div><p class="mut" style="text-align:center">${rec.tipo=='analise'?'Você será avisado assim que a análise terminar.':'O Pix está a caminho. Acompanhe abaixo.'}</p><div class="rb-pr"><span>Protocolo</span><b>${rec.proto}</b></div>${rec.seg?'<div class="alert">🔒 Como você não reconhece a recarga, recomendamos bloquear o cartão.</div><button class="btn red full" onclick="closeOv();go(\'cart\')">Ir para o Cartão</button>':''}<button class="btn full" onclick="rbDet(\'${rec.proto}\')">Acompanhar pedido</button><button class="btn gh full" onclick="closeOv()">Voltar ao início</button></div>`)}
+function rbDet(p){const r=(S.reemb||[]).find(x=>x.proto==p);if(!r)return rbOpen();const s=rbStage(r);
+ ovHTML(`<div class="rb" id="rbdet">${rbTop('Seu pedido','rbOpen()')}<div class="card" style="margin-top:0;text-align:center"><div class="rb-big">${R(r.val)}</div>${rbBadge(r)}<div class="rb-pr" style="text-align:left"><span>Protocolo</span><b>${r.proto}</b></div></div><div class="card"><b>Andamento</b><div class="tl" style="margin-top:6px">${RBL[r.tipo].map((l,i)=>`<p class="${i<=s?'ok':''}">${l}</p>`).join('')}</div></div><div class="card"><table class="tb">${row('Recarga','',esc(r.rec))}${row('Motivo','',RBR[r.motivo][1])}${row('Destino','',rbPix(r.pix))}${row('Prazo','',r.prazo)}</table></div><button class="btn gh full" onclick="rbOpen()">Voltar</button></div>`);
+ clearInterval(RBI);if(s<3)RBI=setInterval(()=>{if(!$('#rbdet'))return clearInterval(RBI);rbDet(p)},2000)}
+authStart();
+/* ===== 2ª VIA (simplificada) ===== */
+function flow2via(){closeSheet();const sa2=Math.max(0,fromCents(toCents(S.saldo)-toCents(C.taxa2via))),falta=toCents(S.saldo)<toCents(C.taxa2via),{u,sobra}=calcU(sa2);
+ ovHTML(`<div class="top"><button aria-label="Voltar" onclick="closeOv()">←</button><b>Segunda via</b></div><div class="card"><b>O cartão antigo será cancelado definitivamente.</b><p>Após a taxa de ${R(C.taxa2via)} (debitada do saldo), seu saldo de ${R(sa2)} e as ${u} passagens + ${R(sobra)} serão transferidos integralmente. Prazo: 5 dias úteis.</p>${falta?'<div class="err">Saldo insuficiente: a 2ª via custa '+R(C.taxa2via)+' e é debitada do saldo.</div>':''}${S.ativo?'<p>⚠️ O cartão atual será bloqueado automaticamente.</p>':''}<div class="f"><label>Motivo da solicitação</label><select onchange="M2=this.value"><option>Perda</option><option>Roubo</option><option>Dano / defeito</option></select></div><table class="tb">${row('Entrega','Endereço cadastrado','')}${row('Cartão','final '+C.final+' (cancelado)','novo número será gerado')}${row('Saldo',R(S.saldo),R(sa2))}${row('Passagens',calcU(S.saldo).u,u)}${row('Taxa','',R(C.taxa2via))}</table></div><button class="btn full" ${falta?'disabled style="opacity:.5"':''} onclick="confirmSheet('Pedir 2ª via por ${R(C.taxa2via)}','Cartão antigo será cancelado.',do2via)">Pagar ${R(C.taxa2via)} e solicitar</button><button class="btn gh full" onclick="acomp()">Acompanhar pedido existente</button>`)}
+function do2via(){if(S.seg2){closeOv();return toast('Já existe um pedido de 2ª via em andamento')}
+ const tx=toCents(C.taxa2via);if(toCents(S.saldo)<tx)return toast('Saldo insuficiente para a taxa da 2ª via ('+R(C.taxa2via)+').');S.saldo=fromCents(toCents(S.saldo)-tx);/* B5: debita a taxa em centavos */
+ USER.cardAnt=USER.card;const oldF=C.final;USER.card=genCard();saveU();C.final=USER.card.slice(-4);S.ativo=false;S.seg2=true;S.motivo2=M2;S.motivo=S.motivo||'2ª via solicitada';S.bloqHora=S.bloqHora||hm();S.hist.unshift({t:'2ª via solicitada (taxa '+R(C.taxa2via)+')',v:-C.taxa2via,d:'Hoje '+hm(),k:'seg'});S.notifs.unshift('2ª via solicitada — prazo 5 dias úteis');
+ ovHTML(`<div class="big">📬</div><h2 style="text-align:center">2ª via solicitada</h2><div class="tl"><p class="ok">Pedido recebido</p><p>Cartão em produção</p><p>Enviado / pronto para retirada</p><p>Entregue</p></div><div class="card">Novo número do cartão: <b>${fmtCard(USER.card,true)}</b><br><small>O final ${oldF} foi cancelado. Taxa de ${R(C.taxa2via)} debitada · saldo atual ${R(S.saldo)}.</small></div><button class="btn full" onclick="closeOv()">Voltar ao início</button>`)}
+/* Falha fechada: fora do demo, nenhuma operação de dinheiro/simulação executa sem servidor */
+['pay','simPix','embarcar','finish','do2via','rbSubmit','tap'].forEach(n=>{const o=window[n];window[n]=function(...a){if(!CONFIG.MODO_DEMO){toast(Api.msgErro({erro:'sem_servidor'}));return}return o.apply(this,a)}});
+render();
+
