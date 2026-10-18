@@ -102,7 +102,10 @@ jobs:
               implementation 'androidx.activity:activity:1.10.0'
           }
           EOF
-
+      - name: Ativar AndroidX
+        run: |
+          echo "android.useAndroidX=true" > gradle.properties
+          echo "android.enableJetifier=true" >> gradle.properties
       - name: Gerar APK
         run: gradle assembleDebug
 
