@@ -22,12 +22,89 @@ jobs:
 
       - name: Configurar Gradle
         uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
 
-      - name: Dar permissao ao Gradle
-        run: chmod +x gradlew
+      - name: Criar estrutura Android
+        run: |
+          mkdir -p app/src/main/java/com/tobus/app
+          mkdir -p app/src/main/res/values
+          mkdir -p app/src/main/res/drawable
+          mkdir -p app/src/main/assets/www/js
+          mkdir -p app/src/main/assets/www/css
+          mkdir -p app/src/main/assets/www/assets
+
+          cp index.html app/src/main/assets/www/index.html
+          cp styles.css app/src/main/assets/www/css/styles.css
+          cp *.js app/src/main/assets/www/js/
+
+          if [ -f logo.png ]; then
+            cp logo.png app/src/main/assets/www/assets/logo.png
+          fi
+
+          if [ -f app_icon.png ]; then
+            cp app_icon.png app/src/main/res/drawable/app_icon.png
+          elif [ -f logo.png ]; then
+            cp logo.png app/src/main/res/drawable/app_icon.png
+          fi
+
+          cp MainActivity.java app/src/main/java/com/tobus/app/MainActivity.java
+          cp AndroidManifest.xml app/src/main/AndroidManifest.xml
+          cp styles.xml app/src/main/res/values/styles.xml
+
+          cat > settings.gradle <<'EOF'
+          pluginManagement {
+              repositories {
+                  google()
+                  mavenCentral()
+                  gradlePluginPortal()
+              }
+          }
+
+          dependencyResolutionManagement {
+              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+          }
+
+          rootProject.name = "ToBus"
+          include ':app'
+          EOF
+
+          cat > build.gradle <<'EOF'
+          plugins {
+              id 'com.android.application' version '8.7.3' apply false
+          }
+          EOF
+
+          cat > app/build.gradle <<'EOF'
+          plugins {
+              id 'com.android.application'
+          }
+
+          android {
+              namespace 'com.tobus.app'
+              compileSdk 35
+
+              defaultConfig {
+                  applicationId 'com.tobus.app'
+                  minSdk 23
+                  targetSdk 35
+                  versionCode 1
+                  versionName '1.0'
+              }
+          }
+
+          dependencies {
+              implementation 'androidx.appcompat:appcompat:1.7.0'
+              implementation 'androidx.activity:activity:1.10.0'
+          }
+          EOF
 
       - name: Gerar APK
-        run: ./gradlew assembleDebug
+        run: gradle assembleDebug
 
       - name: Salvar APK
         uses: actions/upload-artifact@v4
